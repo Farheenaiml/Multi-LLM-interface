@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Frontend - React + Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:5000
+      - VITE_WS_BASE_URL=ws://localhost:5000
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # Backend - FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=5000
+      - DEBUG=true
+      - LITELLM_BASE_URL=http://litellm:8000
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/broadcast_workspace
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+      - litellm
+    networks:
+      - app-network
+
+  # LiteLLM Service for unified LLM provider access
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "8000:8000"
+    environment:
+      - LITELLM_MASTER_KEY=sk-1234
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "8000", "--num_workers", "1"]
+    networks:
+      - app-network
+
+  # PostgreSQL Database (Optional)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=broadcast_workspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+
+  # Redis Cache (Optional)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge

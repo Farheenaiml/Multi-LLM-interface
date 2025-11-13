@@ -1,0 +1,3 @@
+provider,model_id,model_name,status,error,response,tokens,cost,latency
+google,gemini-2.5-pro-preview-03-25,Gemini 2.5 Pro Preview 03-25,FAILED,Google API error: 429,,0,0.0,0
+groq,meta-llama/llama-prompt-guard-2-22m,model,FAILED,Groq API error: 400,,0,0.0,0

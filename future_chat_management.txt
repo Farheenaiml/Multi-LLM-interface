@@ -1,0 +1,77 @@
+ LLM chatbots like ChatGPT and Gemini typically manage sessions through a combination of server-side and
+  client-side mechanisms to maintain context and user data across interactions. Here's a general overview:
+
+   1. Authentication and Session IDs: When you log in, the server authenticates your credentials and creates a
+      unique session ID. This ID is then sent back to your browser, usually stored in an HTTP-only cookie.
+      Subsequent requests from your browser include this session ID, allowing the server to identify you.
+
+   2. Server-Side Session Storage: The server maintains a record of active sessions, often in a dedicated session
+       store (like Redis, Memcached, or a database). This store associates your session ID with your user
+      profile, preferences, and crucially, your chat history.
+
+   3. Database Persistence for Chat History: The actual conversation turns (user prompts and AI responses) are
+      typically stored in a persistent database (e.g., PostgreSQL, MongoDB). Each message is linked to your user
+      account and a specific conversation thread. This ensures that your chat history is preserved even if your
+      session expires or you log in from a different device.
+
+   4. Authentication Tokens (e.g., JWTs): For API-driven applications, JSON Web Tokens (JWTs) are often used.
+      After authentication, the server issues a JWT, which the client stores (e.g., in local storage or cookies).
+       This token is then sent with each API request to authorize access to resources and identify the user.
+
+   5. Client-Side State Management (Temporary): While critical data like chat history is server-managed, some
+      temporary UI state or non-sensitive information might be held in client-side memory or local storage for a
+      smoother user experience during a single browsing session. However, this data is usually not relied upon
+      for long-term persistence.
+
+  In essence, the server is responsible for maintaining the authoritative record of your session and chat
+  history, using the session ID or authentication token to link your browser's requests to your stored data.
+
+> how do they maintain context withh the llm as calls are usually stateless
+
+✦ You're right to point out that individual LLM API calls are inherently stateless. The LLM itself doesn't
+  "remember" previous interactions. To maintain context in a conversational chatbot, developers employ several
+  strategies, essentially building a "memory" layer around the stateless LLM.
+
+  Here's how they typically maintain context:
+
+   1. Sending the Full Conversation History (or a Truncated Version):
+       * Mechanism: The most common approach is to send the entire conversation history (or a significant
+         portion of it) with each new user prompt to the LLM. The LLM then processes this entire sequence of
+         messages to generate a contextually relevant response.
+       * Example: If a user says "What's the capital of France?" and then "What about Germany?", the second
+         prompt sent to the LLM would be:
+
+   1         User: What's the capital of France?
+   2         Assistant: Paris.
+   3         User: What about Germany?
+       * Limitations: This can quickly hit token limits for longer conversations and increases API costs.
+
+   2. Summarization and Compression:
+       * Mechanism: For longer conversations, the system might periodically summarize past turns to condense the
+          history into a shorter, more manageable form. This summary, along with recent turns, is then sent to
+         the LLM.
+       * Example: After 10 turns, the system might generate a summary like "User asked about capitals of
+         European countries." This summary replaces the older, detailed messages.
+       * Techniques: This can be done using another LLM call specifically for summarization, or with rule-based
+         heuristics.
+
+   3. Retrieval Augmented Generation (RAG) with Vector Databases:
+       * Mechanism: Instead of sending the entire chat history, key pieces of information from the conversation
+         (or external documents) are converted into numerical representations called "embeddings." These
+         embeddings are stored in a vector database. When a new query comes in, its embedding is used to search
+         the vector database for semantically similar past interactions or relevant documents. The retrieved
+         information is then included in the prompt sent to the LLM.
+       * Benefit: This is particularly effective for grounding the LLM in specific knowledge or for very long
+         conversations where summarization might lose critical details.
+
+   4. System/Pre-prompts:
+       * Mechanism: An initial "system" message or pre-prompt is often sent at the beginning of a conversation
+         (and sometimes with every turn) to set the LLM's persona, define its role, or provide specific
+         instructions that should persist throughout the interaction.
+       * Example: "You are a helpful assistant that answers questions about geography." This helps maintain a
+         consistent tone and focus.
+
+   5. Hybrid Approaches:
+       * Many advanced chatbots combine these methods. They might use summarization for older parts of the
+         conversation, send recent turns directly, and use RAG for retrieving specific facts or user
+         preferences.

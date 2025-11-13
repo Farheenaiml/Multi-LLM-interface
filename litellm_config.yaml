@@ -1,0 +1,95 @@
+model_list:
+  # Google Gemini Models (using standard model names)
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GOOGLE_API_KEY
+  
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GOOGLE_API_KEY
+  
+  - model_name: gemini-flash-latest
+    litellm_params:
+      model: gemini/gemini-flash-lite-latest
+      api_key: os.environ/GOOGLE_API_KEY
+  
+  - model_name: gemini-pro-latest
+    litellm_params:
+      model: gemini/gemini-pro-latest
+      api_key: os.environ/GOOGLE_API_KEY
+
+
+
+  # Groq Models (Core Llama models)
+  - model_name: llama-3.1-8b-instant
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+  
+  
+  # Groq Compound Models
+  - model_name: compound
+    litellm_params:
+      model: groq/compound
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: compound-mini
+    litellm_params:
+      model: groq/compound-mini
+      api_key: os.environ/GROQ_API_KEY
+  
+ 
+  # Alibaba Cloud Models via Groq
+  - model_name: qwen3-32b
+    litellm_params:
+      model: groq/qwen/qwen3-32b
+      api_key: os.environ/GROQ_API_KEY
+
+  # OpenAI Models via Groq
+  - model_name: gpt-oss-120b
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: gpt-oss-safeguard-20b
+    litellm_params:
+      model: groq/openai/gpt-oss-safeguard-20b
+      api_key: os.environ/GROQ_API_KEY
+
+  # Whisper Models via Groq
+  - model_name: whisper-large-v3
+    litellm_params:
+      model: groq/whisper-large-v3
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: whisper-large-v3-turbo
+    litellm_params:
+      model: groq/whisper-large-v3-turbo
+      api_key: os.environ/GROQ_API_KEY
+
+  # Meta Llama Models via Groq
+  - model_name: llama-4-maverick-17b-128e
+    litellm_params:
+      model: groq/meta-llama/llama-4-maverick-17b-128e-instruct
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: llama-4-scout-17b-16e-instruct
+    litellm_params:
+      model: groq/meta-llama/llama-4-scout-17b-16e-instruct
+      api_key: os.environ/GROQ_API_KEY
+  
+  - model_name: llama-guard-4-12b
+    litellm_params:
+      model: groq/meta-llama/llama-guard-4-12b
+      api_key: os.environ/GROQ_API_KEY
+  
+general_settings:
+  master_key: sk-1234
+  # Removed database_url - LiteLLM will run without database
