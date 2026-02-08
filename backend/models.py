@@ -31,6 +31,7 @@ class Message(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     provenance: Optional[ProvenanceInfo] = None
     metadata: Optional[MessageMetadata] = None
+    images: Optional[List[str]] = None  # List of base64 encoded image strings
 
 
 class ModelInfo(BaseModel):
@@ -40,6 +41,7 @@ class ModelInfo(BaseModel):
     max_tokens: int
     cost_per_1k_tokens: float
     supports_streaming: bool = True
+    supports_vision: bool = False
 
 
 class ModelSelection(BaseModel):
@@ -124,6 +126,7 @@ class StreamEvent(BaseModel):
 # API Request/Response Models
 class BroadcastRequest(BaseModel):
     prompt: str
+    images: Optional[List[str]] = None
     models: List[ModelSelection]
     session_id: str
 

@@ -148,7 +148,11 @@ async def create_broadcast(request: BroadcastRequest):
             
             if model_info:
                 # Create user message and capture its ID
-                user_message = Message(role="user", content=request.prompt)
+                user_message = Message(
+                    role="user", 
+                    content=request.prompt,
+                    images=request.images
+                )
                 print(f"📝 Created user message with ID: {user_message.id}")
                 
                 pane = ChatPane(
@@ -205,10 +209,22 @@ async def send_chat_message(pane_id: str, request: dict):
             logger.info(f"Available panes: {[p.id for p in session.panes]}")
             raise HTTPException(status_code=404, detail="Pane not found")
         
-        logger.info(f"Pane found: {pane.model_info.id}, current messages: {len(pane.messages)}")
-        
+        # DEBUG: Log exact model and image details
+        logger.info(f"🔍 CHAT REQUEST DEBUG: Pane ID: {pane_id}")
+        logger.info(f"🔍 CHAT REQUEST DEBUG: Model ID: {pane.model_info.id} (Provider: {pane.model_info.provider})")
+        images = request.get("images")
+        if images:
+            logger.info(f"🔍 CHAT REQUEST DEBUG: Received {len(images)} images")
+            logger.info(f"🔍 CHAT REQUEST DEBUG: Image preview: {images[0][:50]}...")
+        else:
+            logger.info("🔍 CHAT REQUEST DEBUG: No images received in request")
+
         # Add user message to pane
-        user_message = Message(role="user", content=message)
+        user_message = Message(
+            role="user", 
+            content=message,
+            images=images
+        )
         pane.messages.append(user_message)
         session_manager.update_session(session)
         
@@ -234,6 +250,7 @@ async def send_chat_message(pane_id: str, request: dict):
         broadcast_request = BroadcastRequest(
             session_id=session_id,
             prompt=message,
+            images=images,
             models=[model_selection]
         )
         

@@ -18,10 +18,10 @@ export const FloatingSessionMetrics: React.FC<FloatingSessionMetricsProps> = ({
 
   const totalPanes = Object.keys(activePanes).length;
   const totalMessages = Object.values(activePanes).reduce((sum, pane) => sum + pane.messages.length, 0);
-  const totalTokens = Object.values(activePanes).reduce((sum, pane) => sum + pane.metrics.tokenCount, 0);
+
   const totalCost = Object.values(activePanes).reduce((sum, pane) => sum + pane.metrics.cost, 0);
-  const avgLatency = totalPanes > 0 
-    ? Object.values(activePanes).reduce((sum, pane) => sum + pane.metrics.latency, 0) / totalPanes 
+  const avgLatency = totalPanes > 0
+    ? Object.values(activePanes).reduce((sum, pane) => sum + pane.metrics.latency, 0) / totalPanes
     : 0;
 
   const activeProviders = [...new Set(Object.values(activePanes).map(pane => pane.modelInfo.provider))];
@@ -35,7 +35,7 @@ export const FloatingSessionMetrics: React.FC<FloatingSessionMetricsProps> = ({
           <span>Session Metrics</span>
         </div>
         <div className="metrics-controls">
-          <button 
+          <button
             className="close-btn"
             onClick={onToggle}
             title="Close"

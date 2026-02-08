@@ -194,12 +194,12 @@ class BroadcastOrchestrator:
             if pane and pane.messages:
                 # Include all previous messages for context
                 messages = [
-                    Message(role=msg.role, content=msg.content) 
+                    Message(role=msg.role, content=msg.content, images=msg.images) 
                     for msg in pane.messages
                 ]
             
             # Add the new user message
-            messages.append(Message(role="user", content=request.prompt))
+            messages.append(Message(role="user", content=request.prompt, images=request.images))
             
             # Log conversation context for debugging
             logger.info(f"🗨️ Sending {len(messages)} messages to {model_id} (pane: {pane_id})")
@@ -211,6 +211,122 @@ class BroadcastOrchestrator:
                 "temperature": model_selection.temperature or 0.7,
                 "max_tokens": model_selection.max_tokens or 1000
             }
+
+            # --- VISION BRIDGE LOGIC ---
+            # Check if model supports vision (default to False if info missing)
+            model_info = await self.registry.get_model_info(model_id)
+            supports_vision = getattr(model_info, 'supports_vision', False) if model_info else False
+            
+            # Determine if we need to use the bridge
+            needs_bridge = False
+            bridge_reason = ""
+            bridge_prompt = ""
+            
+            if request.images and len(request.images) > 0:
+                # Check for document types (PDF, PPT, CSV, Text)
+                has_documents = False
+                for img in request.images:
+                    if any(mime in img for mime in ["application/pdf", "application/vnd", "text/", "application/json"]):
+                        has_documents = True
+                        break
+                
+                if not supports_vision:
+                    needs_bridge = True
+                    bridge_reason = "Model does not support vision/attachments"
+                elif has_documents and model_selection.provider_id != "google":
+                    # Even if model claims vision support (like GPT-4o via generic adapter),
+                    # it often fails on direct PDF uploads or the adapter doesn't handle it.
+                    # Safest to bridge documents for non-Google providers.
+                    needs_bridge = True
+                    bridge_reason = "Model provider may not support direct document uploads"
+                
+                # Set appropriate prompt based on content type
+                if has_documents:
+                    bridge_prompt = "Please analyze the attached document(s) in detail. Extract all text, key information, data points, and structural elements. Provide a comprehensive representation of the document's content so that a text-only AI can understand and analyze it."
+                else:
+                    bridge_prompt = "Please describe this image in extreme detail so that a text-only AI can understand what is in it. Describe layout, text, colors, objects, relationships, and any other relevant details."
+
+            # Execute bridge if needed
+            if needs_bridge:
+                logger.info(f"🌉 Vision Bridge Triggered: {bridge_reason}. Handing off to Gemini...")
+                
+                # Notify user of the bridge action
+                status_msg = "Analyzing document..." if has_documents else "Analyzing image..."
+                await connection_manager.send_event(
+                    request.session_id,
+                    StreamEvent(
+                        type="status",
+                        pane_id=pane_id,
+                        data=StatusData(
+                            status="analyzing_image",
+                            message=f"{status_msg} (via Gemini Bridge)"
+                        )
+                    )
+                )
+
+                try:
+                    # Get Google Adapter for vision
+                    vision_adapter = self.registry.get_adapter("google")
+                    if vision_adapter:
+                        # Create a temporary message for Gemini
+                        vision_messages = [
+                            Message(
+                                role="user", 
+                                content=bridge_prompt,
+                                images=request.images
+                            )
+                        ]
+                        
+                        description = ""
+                        # Stream the description (we just want the final text)
+                        # Use a reliable stable model for analysis (using alias to catch available version)
+                        async for event in vision_adapter.stream(vision_messages, "gemini-flash-latest", "temp_vision_pane"):
+                            if event.type == "token":
+                                description += event.data.token
+                            elif event.type == "final":
+                                description = event.data.content
+                        
+                        if description:
+                            # ... (success logic unchanged)
+                            logger.info(f"🌉 Vision Bridge Success: Generated {len(description)} chars context")
+                            
+                            # Append description to the LAST message (current user prompt)
+                            if messages:
+                                last_msg = messages[-1]
+                                context_type_lbl = "DOCUMENT ANALYSIS" if has_documents else "IMAGE DESCRIPTION"
+                                last_msg.content += f"\n\n[SYSTEM NOTE: The user attached a file. Here is the {context_type_lbl} generated by a vision model:]\n{description}"
+                                last_msg.images = None # Remove images so target adapter doesn't choke
+                            
+                            # Notify user
+                            await connection_manager.send_event(
+                                request.session_id,
+                                StreamEvent(
+                                    type="status",
+                                    pane_id=pane_id,
+                                    data=StatusData(
+                                        status="ready",
+                                        message=f"Analysis complete. Sending text context to {model_selection.model_id}..."
+                                    )
+                                )
+                            )
+                        else:
+                            logger.warning("🌉 Vision Bridge: Gemini returned empty description")
+                except Exception as e:
+                    logger.error(f"🌉 Vision Bridge Error: {str(e)}", exc_info=True)
+                    # Notify user of failure but continue
+                    await connection_manager.send_event(
+                        request.session_id,
+                        StreamEvent(
+                            type="status",
+                            pane_id=pane_id,
+                            data=StatusData(
+                                status="streaming",
+                                message=f"Document analysis failed, sending raw prompt..."
+                            )
+                        )
+                    )
+                    # Continue without description, model will likely fail or say "I can't see"
+            # ---------------------------
             
             error_handler._log_structured(
                 "info",

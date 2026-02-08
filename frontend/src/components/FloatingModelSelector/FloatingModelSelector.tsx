@@ -4,8 +4,8 @@ import './FloatingModelSelector.css';
 
 export interface FloatingModelSelectorProps {
   availableModels: ModelInfo[];
-  onModelSelect: (model: ModelInfo, prompt: string) => void;
-  onMultiModelSelect?: (models: ModelInfo[], prompt: string) => void;
+  onModelSelect: (model: ModelInfo, prompt: string, images?: string[]) => void;
+  onMultiModelSelect?: (models: ModelInfo[], prompt: string, images?: string[]) => void;
   isStreaming: boolean;
 }
 
@@ -18,6 +18,8 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Token estimation function (rough approximation)
   const estimateTokens = (text: string): number => {
@@ -30,7 +32,7 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
     const promptTokens = estimateTokens(prompt);
     const estimatedResponseTokens = Math.min(promptTokens * 2, 500); // Rough estimate
     const totalTokens = promptTokens + estimatedResponseTokens;
-    
+
     const totalCost = models.reduce((sum, model) => {
       return sum + ((totalTokens / 1000) * (model.costPer1kTokens || 0));
     }, 0);
@@ -55,20 +57,41 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
   const handleModelToggle = (model: ModelInfo) => {
     const modelKey = `${model.provider}:${model.id}`;
     const newSelected = new Set(selectedModels);
-    
+
     if (newSelected.has(modelKey)) {
       newSelected.delete(modelKey);
     } else {
       newSelected.add(modelKey);
     }
-    
+
     setSelectedModels(newSelected);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setSelectedFiles(prev => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSingleModelClick = (model: ModelInfo) => {
     if (prompt.trim()) {
-      onModelSelect(model, prompt);
+      onModelSelect(model, prompt, selectedFiles.length > 0 ? selectedFiles : undefined);
       setPrompt('');
+      setSelectedFiles([]);
       setIsExpanded(false);
       setSelectedModels(new Set());
     }
@@ -76,18 +99,19 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
 
   const handleBroadcastSelected = () => {
     if (prompt.trim() && selectedModels.size > 0) {
-      const modelsToSend = availableModels.filter(model => 
+      const modelsToSend = availableModels.filter(model =>
         selectedModels.has(`${model.provider}:${model.id}`)
       );
-      
+
       if (onMultiModelSelect) {
-        onMultiModelSelect(modelsToSend, prompt);
+        onMultiModelSelect(modelsToSend, prompt, selectedFiles.length > 0 ? selectedFiles : undefined);
       } else {
         // Fallback to individual calls
-        modelsToSend.forEach(model => onModelSelect(model, prompt));
+        modelsToSend.forEach(model => onModelSelect(model, prompt, selectedFiles.length > 0 ? selectedFiles : undefined));
       }
-      
+
       setPrompt('');
+      setSelectedFiles([]);
       setIsExpanded(false);
       setSelectedModels(new Set());
     }
@@ -96,13 +120,14 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
   const handleBroadcastAll = () => {
     if (prompt.trim()) {
       if (onMultiModelSelect) {
-        onMultiModelSelect(availableModels, prompt);
+        onMultiModelSelect(availableModels, prompt, selectedFiles.length > 0 ? selectedFiles : undefined);
       } else {
         // Fallback to individual calls
-        availableModels.forEach(model => onModelSelect(model, prompt));
+        availableModels.forEach(model => onModelSelect(model, prompt, selectedFiles.length > 0 ? selectedFiles : undefined));
       }
-      
+
       setPrompt('');
+      setSelectedFiles([]);
       setIsExpanded(false);
       setSelectedModels(new Set());
     }
@@ -113,8 +138,9 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
       e.preventDefault(); // Prevent form submission
       // If only one model available, use it directly
       if (availableModels.length === 1) {
-        onModelSelect(availableModels[0], prompt);
+        onModelSelect(availableModels[0], prompt, selectedFiles.length > 0 ? selectedFiles : undefined);
         setPrompt('');
+        setSelectedFiles([]);
       } else {
         setIsExpanded(true);
       }
@@ -124,7 +150,46 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
   return (
     <div className="floating-model-selector">
       <div className="selector-main">
+        {selectedFiles.length > 0 && (
+          <div className="file-previews">
+            {selectedFiles.map((file, index) => (
+              <div key={index} className="file-preview-item">
+                {file.startsWith('data:image') ? (
+                  <img src={file} alt={`Upload ${index + 1}`} className="file-thumbnail" />
+                ) : (
+                  <div className="file-thumbnail" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e0e0e0', fontSize: '24px', cursor: 'default' }} title={file.split(';')[0]}>
+                    📄
+                  </div>
+                )}
+                <button
+                  className="remove-file-btn"
+                  onClick={() => handleRemoveFile(index)}
+                  title="Remove file"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="prompt-section">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="image/*,application/pdf,text/csv,application/json,text/plain"
+            multiple
+          />
+          <button
+            className="expand-btn file-trigger-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach image"
+            disabled={isStreaming}
+            style={{ marginRight: '8px', background: '#f0f0f0', color: '#666' }}
+          >
+            📎
+          </button>
           <input
             type="text"
             className="floating-prompt-input"
@@ -137,7 +202,7 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
           <button
             className="expand-btn"
             onClick={() => setIsExpanded(!isExpanded)}
-            disabled={!prompt.trim() || isStreaming}
+            disabled={(!prompt.trim() && selectedFiles.length === 0) || isStreaming}
             title="Select model"
           >
             {isStreaming ? '⏳' : '🤖'}
@@ -165,12 +230,12 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
                 </button>
               </div>
             </div>
-            
+
             <div className="model-list">
               {availableModels.map((model) => {
                 const modelKey = `${model.provider}:${model.id}`;
                 const isSelected = selectedModels.has(modelKey);
-                
+
                 return (
                   <div
                     key={modelKey}
@@ -192,7 +257,7 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
                       </div>
 
                     </label>
-                    
+
                     <button
                       className="single-send-btn"
                       onClick={() => handleSingleModelClick(model)}
@@ -205,7 +270,7 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
                 );
               })}
             </div>
-            
+
             <div className="dropdown-footer">
               {/* Token Warning/Info */}
               {prompt.trim() && (
@@ -213,12 +278,12 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
                   {selectedModels.size > 0 && (
                     <div className="token-estimate selected">
                       {(() => {
-                        const selectedModelsList = availableModels.filter(m => 
+                        const selectedModelsList = availableModels.filter(m =>
                           selectedModels.has(`${m.provider}:${m.id}`)
                         );
                         const estimates = getEstimates(selectedModelsList);
                         const warningLevel = getWarningLevel(estimates.totalCost);
-                        
+
                         return (
                           <div className={`estimate-card ${warningLevel}`}>
                             <span className="estimate-icon">
@@ -232,12 +297,12 @@ export const FloatingModelSelector: React.FC<FloatingModelSelectorProps> = ({
                       })()}
                     </div>
                   )}
-                  
+
                   <div className="token-estimate all">
                     {(() => {
                       const estimates = getEstimates(availableModels);
                       const warningLevel = getWarningLevel(estimates.totalCost);
-                      
+
                       return (
                         <div className={`estimate-card ${warningLevel}`}>
                           <span className="estimate-icon">

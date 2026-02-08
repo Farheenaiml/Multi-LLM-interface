@@ -7,7 +7,7 @@ export interface ChatPaneProps {
   pane: ChatPaneType;
   onSelectContent?: (content: SelectedContent) => void;
   onSendTo?: (paneId: string) => void;
-  onSendMessage?: (paneId: string, message: string) => void;
+  onSendMessage?: (paneId: string, message: string, images?: string[]) => void;
   isCompareMode?: boolean;
   compareHighlights?: Array<{
     type: 'added' | 'removed' | 'unchanged';
@@ -27,33 +27,54 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    // Scroll to bottom using multiple methods for reliability
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-    
-    // Also scroll the container to bottom
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-    }
-  }, [pane.messages, pane.messages.length]);
+  // Track initial scroll to bottom on load
+  const [initialScrollDone, setInitialScrollDone] = useState(false);
 
-  // Also scroll on streaming updates (when message content changes)
+  const scrollToMessage = (messageId: string) => {
+    // Add a small delay to allow DOM render
+    setTimeout(() => {
+      const messageEl = document.getElementById(`message-${messageId}`);
+      if (messageEl) {
+        messageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
+  // Handle scrolling behavior
   useEffect(() => {
+    // 1. Initial load - scroll to bottom
+    if (!initialScrollDone && pane.messages.length > 0) {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+      }
+      setInitialScrollDone(true);
+      return;
+    }
+
+    // 2. New message added
     const lastMessage = pane.messages[pane.messages.length - 1];
-    if (lastMessage && pane.isStreaming) {
-      // During streaming, scroll to bottom
-      if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    if (lastMessage) {
+      if (lastMessage.role === 'user') {
+        // If user sent a message, scroll that message to the top
+        scrollToMessage(lastMessage.id);
+      } else if (lastMessage.role === 'assistant') {
+        // If assistant message was added, verify if the previous message was from user
+        // and ensure THAT message is at the top. This effectively shows User Prompt + Start of Answer.
+        const prevMessage = pane.messages[pane.messages.length - 2];
+        if (prevMessage && prevMessage.role === 'user') {
+          scrollToMessage(prevMessage.id);
+        }
       }
     }
-  }, [pane.messages, pane.isStreaming]);
+  }, [pane.messages.length, initialScrollDone]);
+
+  // Removed the streaming auto-scroll useEffect to prevent forced scrolling during generation
 
   const handleMessageSelect = (messageId: string) => {
     if (!isSelectionMode) return;
@@ -103,10 +124,34 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     onSelectContent?.({ messageIds: [], text: '' });
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setSelectedFiles(prev => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      // Reset input so same file can be selected again if needed (though we just processed it)
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = () => {
-    if (inputMessage.trim() && onSendMessage && !pane.isStreaming) {
-      onSendMessage(pane.id, inputMessage.trim());
+    if ((inputMessage.trim() || selectedFiles.length > 0) && onSendMessage && !pane.isStreaming) {
+      onSendMessage(pane.id, inputMessage.trim(), selectedFiles.length > 0 ? selectedFiles : undefined);
       setInputMessage('');
+      setSelectedFiles([]);
+      // Reset initial scroll done so we don't interfere with standard behavior? 
+      // Actually no, we want standard behavior (user scroll) now.
     }
   };
 
@@ -131,6 +176,43 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       return (
         <div className="message-text">
           <MarkdownRenderer content={message.content} />
+          {message.images && message.images.length > 0 && (
+            <div className="message-images">
+              {message.images.map((img, idx) => {
+                const isImage = img.startsWith('data:image');
+                return isImage ? (
+                  <img
+                    key={idx}
+                    src={img}
+                    alt={`Attached content ${idx + 1}`}
+                    className="message-image"
+                    onClick={() => window.open(img, '_blank')}
+                  />
+                ) : (
+                  <div
+                    key={idx}
+                    className="message-attachment"
+                    style={{
+                      padding: '10px',
+                      background: 'rgba(0,0,0,0.05)',
+                      borderRadius: '8px',
+                      marginTop: '8px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      border: '1px solid rgba(0,0,0,0.1)'
+                    }}
+                    onClick={() => window.open(img, '_blank')}
+                    title="Click to open"
+                  >
+                    <span style={{ fontSize: '24px' }}>📄</span>
+                    <span style={{ fontWeight: 500 }}>{img.split(';')[0].split(':')[1] || 'Document'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       );
     }
@@ -214,6 +296,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           pane.messages.map((message) => (
             <div
               key={message.id}
+              id={`message-${message.id}`}
               className={`message message-${message.role} ${selectedMessages.has(message.id) ? 'selected' : ''
                 } ${isSelectionMode ? 'selectable' : ''}`}
               onClick={() => handleMessageSelect(message.id)}
@@ -279,12 +362,55 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           </div>
         )}
 
+        {/* Spacer to allow scrolling user prompt to top even with short content */}
+        {pane.isStreaming && (
+          <div style={{ minHeight: '60vh' }} />
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Chat Input */}
       <div className="chat-input-section">
+        {selectedFiles.length > 0 && (
+          <div className="file-previews">
+            {selectedFiles.map((file, index) => (
+              <div key={index} className="file-preview-item">
+                {file.startsWith('data:image') ? (
+                  <img src={file} alt={`Upload ${index + 1}`} className="file-thumbnail" />
+                ) : (
+                  <div className="file-thumbnail" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e0e0e0', fontSize: '24px', cursor: 'default' }} title={file.split(';')[0]}>
+                    📄
+                  </div>
+                )}
+                <button
+                  className="remove-file-btn"
+                  onClick={() => handleRemoveFile(index)}
+                  title="Remove file"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="chat-input-container">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="image/*,application/pdf,text/csv,application/json,text/plain"
+            multiple
+          />
+          <button
+            className="action-btn secondary file-upload-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach image"
+            disabled={pane.isStreaming}
+          >
+            📎
+          </button>
           <textarea
             className="chat-input"
             placeholder={`Chat with ${pane.modelInfo.name}...`}
@@ -297,7 +423,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           <button
             className="send-btn"
             onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || pane.isStreaming}
+            disabled={(!inputMessage.trim() && selectedFiles.length === 0) || pane.isStreaming}
             title="Send message (Enter)"
           >
             {pane.isStreaming ? '⏳' : '📤'}

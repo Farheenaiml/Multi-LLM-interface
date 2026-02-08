@@ -291,7 +291,8 @@ class GroqAdapter(LLMAdapter):
                 provider="groq",
                 max_tokens=8192,
                 cost_per_1k_tokens=0.0001,
-                supports_streaming=True
+                supports_streaming=True,
+                supports_vision=False
             ),
             ModelInfo(
                 id="qwen/qwen3-32b",

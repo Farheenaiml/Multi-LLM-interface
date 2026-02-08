@@ -7,6 +7,7 @@ export interface Message {
   timestamp: Date;
   provenance?: ProvenanceInfo;
   metadata?: MessageMetadata;
+  images?: string[]; // Array of base64 encoded image strings
 }
 
 export interface ProvenanceInfo {
@@ -108,6 +109,7 @@ export interface StatusData {
 
 export interface BroadcastRequest {
   prompt: string;
+  images?: string[];
   models: ModelSelection[];
   sessionId: string;
 }

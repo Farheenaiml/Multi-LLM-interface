@@ -80,7 +80,7 @@ class GoogleDataStudioAdapter(LLMAdapter):
                 "contents": formatted_messages,
                 "generationConfig": {
                     "temperature": kwargs.get("temperature", 0.7),
-                    "maxOutputTokens": kwargs.get("max_tokens", 1000),
+                    "maxOutputTokens": kwargs.get("max_tokens", 8192),
                     "candidateCount": 1
                 }
             }
@@ -148,25 +148,25 @@ class GoogleDataStudioAdapter(LLMAdapter):
                 # Read the entire response and parse as JSON
                 response_text = await response.aread()
                 response_str = response_text.decode('utf-8')
-                print(f"📥 Complete response from Google: {response_str[:200]}...")
+                print(f"📥 Complete response from Google ({len(response_str)} bytes): {response_str[:1000]}...")
                 
                 try:
                     # Parse the complete JSON response
                     data = json.loads(response_str)
-                    print(f"📊 Parsed complete JSON data: {data}")
+                    print(f"📊 Parsed complete JSON data keys/length: {len(data) if isinstance(data, list) else 'Dict'}")
                     
-                    # Handle array of responses (Google returns array of streaming chunks)
+                    # Handle array of streaming chunks (Standard Google Stream API)
                     if isinstance(data, list):
                         for response_obj in data:
                             if "candidates" in response_obj and len(response_obj["candidates"]) > 0:
                                 candidate = response_obj["candidates"][0]
                                 
+                                # Extract text content
                                 if "content" in candidate and "parts" in candidate["content"]:
                                     for part in candidate["content"]["parts"]:
                                         if "text" in part:
                                             token = part["text"]
                                             if token:
-                                                print(f"🎯 Yielding token: '{token}' for pane: {pane_id}")
                                                 full_content += token
                                                 token_count += len(token.split())
                                                 
@@ -176,7 +176,7 @@ class GoogleDataStudioAdapter(LLMAdapter):
                                                     data=TokenData(token=token, position=token_count)
                                                 )
                                 
-                                # Check for finish reason
+                                # Check for finish reason in the last chunk or current chunk
                                 if "finishReason" in candidate:
                                     end_time = datetime.now()
                                     latency = int((end_time - start_time).total_seconds() * 1000)
@@ -203,9 +203,47 @@ class GoogleDataStudioAdapter(LLMAdapter):
                                         )
                                     )
                                     break
-                    elif "candidates" in data and len(data["candidates"]) > 0:
-                        # This is handled above in the array processing
-                        pass
+                    
+                    # Handle single object response (e.g. error or non-streaming structure)
+                    elif isinstance(data, dict):
+                         # If it's a valid response dict (candidates) but not list
+                         if "candidates" in data and len(data["candidates"]) > 0:
+                            # Re-use similar logic or just extract all at once
+                            candidate = data["candidates"][0]
+                            if "content" in candidate and "parts" in candidate["content"]:
+                                text = "".join([p.get("text", "") for p in candidate["content"]["parts"]])
+                                full_content = text
+                                token_count = len(text.split())
+                                
+                                yield StreamEvent(
+                                    type="token",
+                                    pane_id=pane_id,
+                                    data=TokenData(token=text, position=token_count)
+                                )
+                                
+                                yield StreamEvent(
+                                    type="final",
+                                    pane_id=pane_id,
+                                    data=FinalData(
+                                        content=full_content,
+                                        finish_reason=candidate.get("finishReason", "STOP")
+                                    )
+                                )
+                         else:
+                            print(f"⚠️ Warning: Unrecognized JSON dict structure: {data.keys()}")
+
+                except json.JSONDecodeError as e:
+                    print(f"❌ Failed to parse JSON response from Google: {e}")
+                    # Log error but try to continue or fail gracefully
+                    yield StreamEvent(
+                        type="error",
+                        pane_id=pane_id,
+                        data=ErrorData(
+                            message=f"Google API Error: Invalid JSON response",
+                            code="parse_error",
+                            retryable=True
+                        )
+                    )
                     
                 except json.JSONDecodeError:
                     print(f"❌ Failed to parse JSON response from Google")
@@ -283,34 +321,30 @@ class GoogleDataStudioAdapter(LLMAdapter):
         """Return hardcoded working Google models - 3 core models"""
         return [
             ModelInfo(
-                id="gemini-2.5-pro",
-                name="Gemini 2.5 Pro",
-                provider="google",
-                max_tokens=1048576,
-                cost_per_1k_tokens=0.0035,
-                supports_streaming=True
-            ),
-            ModelInfo(
                 id="gemini-2.5-flash",
                 name="Gemini 2.5 Flash",
                 provider="google",
                 max_tokens=1048576,
                 cost_per_1k_tokens=0.0007,
-                supports_streaming=True
+                supports_streaming=True,
+                supports_vision=True
             ),
             ModelInfo(
-                id="gemini-2.0-flash",
-                name="Gemini 2.0 Flash",
+                id="gemini-flash-latest",
+                name="Gemini Flash Latest",
                 provider="google",
                 max_tokens=1048576,
                 cost_per_1k_tokens=0.0007,
-                supports_streaming=True
+                supports_streaming=True,
+                supports_vision=True
             )
         ]
     
+        return formatted
+    
     def _format_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
         """
-        Convert messages to Google format.
+        Convert messages to Google format, handling images if present.
         """
         formatted = []
         
@@ -318,10 +352,45 @@ class GoogleDataStudioAdapter(LLMAdapter):
             # Google uses 'user' and 'model' roles
             role = "user" if msg.role == "user" else "model"
             
-            formatted.append({
-                "role": role,
-                "parts": [{"text": msg.content}]
-            })
+            parts = []
+            
+            # DEBUG: Log image processing
+            if msg.images:
+                print(f"🖼️ Google Adapter: Processing {len(msg.images)} images for message")
+                for i, img in enumerate(msg.images):
+                    print(f"  - Image {i} length: {len(img)}")
+                    if "," in img:
+                        print(f"  - Image {i} header: {img.split(',')[0]}")
+            
+            # Handle images if present (Gemini prefers images before text)
+            if msg.images:
+                for img_data in msg.images:
+                    # Parse base64 data dict
+                    # Expected format: "data:image/png;base64,..."
+                    if "," in img_data:
+                        header, base64_str = img_data.split(",", 1)
+                        # Clean base64 string
+                        base64_str = base64_str.strip()
+                        mime_type = header.split(":")[1].split(";")[0]
+                        
+                        parts.append({
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": base64_str
+                            }
+                        })
+
+            # Handle text content
+            if msg.content:
+                parts.append({"text": msg.content})
+            
+            print(f"📤 Google Adapter: Constructed {len(parts)} parts (Images: {len([p for p in parts if 'inlineData' in p])}, Text: {len([p for p in parts if 'text' in p])})")
+            
+            if parts:
+                formatted.append({
+                    "role": role,
+                    "parts": parts
+                })
         
         return formatted
     

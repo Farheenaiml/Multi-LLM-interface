@@ -100,35 +100,11 @@ export const Workspace: React.FC = () => {
     const setFallbackModels = () => {
       const fallbackModels = [
         {
-          id: 'google:gemini-2.5-pro',
-          name: 'Gemini 2.5 Pro',
+          id: 'google:gemini-2.5-flash',
+          name: 'Gemini 2.5 Flash',
           provider: 'google',
-          maxTokens: 200000,
-          costPer1kTokens: 1.25,
-          supportsStreaming: true
-        },
-        {
-          id: 'google:gemini-flash-latest',
-          name: 'Gemini Flash Latest',
-          provider: 'google',
-          maxTokens: 1000000,
-          costPer1kTokens: 0.30,
-          supportsStreaming: true
-        },
-        {
-          id: 'google:gemini-2.0-flash',
-          name: 'Gemini 2.0 Flash',
-          provider: 'google',
-          maxTokens: 100000,
-          costPer1kTokens: 0.10,
-          supportsStreaming: true
-        },
-        {
-          id: 'google:gemini-2.0-flash-lite',
-          name: 'Gemini 2.0 Flash Lite',
-          provider: 'google',
-          maxTokens: 100000,
-          costPer1kTokens: 0.075,
+          maxTokens: 1048576,
+          costPer1kTokens: 0.0007,
           supportsStreaming: true
         },
         {
@@ -164,61 +140,13 @@ export const Workspace: React.FC = () => {
     fetchModels();
   }, [availableModels, setAvailableModels]);
 
-  const handleModelSelect = async (model: ModelInfo, prompt?: string) => {
-    setIsStreaming(true);
-
-    try {
-      // Create pane for the selected model
-      addPane(model);
-
-      // If prompt is provided, add messages after a short delay
-      if (prompt) {
-        setTimeout(() => {
-          const currentPanes = Object.values(activePanes);
-
-          // Find the most recently created pane for this model
-          const matchingPanes = currentPanes.filter(pane =>
-            pane.modelInfo.provider === model.provider &&
-            pane.modelInfo.id === model.id
-          );
-
-          const targetPane = matchingPanes[matchingPanes.length - 1];
-
-          if (targetPane) {
-            // Add user message
-            const userMessage = {
-              id: `msg-${Date.now()}-user`,
-              role: 'user' as const,
-              content: prompt,
-              timestamp: new Date()
-            };
-
-            updatePaneMessages(targetPane.id, userMessage);
-
-            // Add assistant response after a delay (simulated)
-            setTimeout(() => {
-              const assistantMessage = {
-                id: `msg-${Date.now()}-assistant`,
-                role: 'assistant' as const,
-                content: `This is a simulated response from ${model.name}. In the real implementation, this would be streamed from the backend API.\n\nYour prompt was: "${prompt}"`,
-                timestamp: new Date()
-              };
-
-              updatePaneMessages(targetPane.id, assistantMessage);
-            }, 800);
-          }
-        }, 300);
-      }
-
-      setTimeout(() => setIsStreaming(false), 1200);
-
-    } catch (error) {
-      console.error('Model selection failed:', error);
-      setIsStreaming(false);
-    }
+  const handleModelSelect = async (model: ModelInfo, prompt?: string, images?: string[]) => {
+    // Reuse the broadcast logic for single model selection
+    // This ensures consistency and proper backend session creation
+    await handleMultiModelSelect([model], prompt || '', images);
   };
 
-  const handleSendMessage = async (paneId: string, message: string) => {
+  const handleSendMessage = async (paneId: string, message: string, images?: string[]) => {
     if (!currentSession) return;
 
     const pane = activePanes[paneId];
@@ -229,6 +157,7 @@ export const Workspace: React.FC = () => {
       id: `msg-${Date.now()}-user`,
       role: 'user' as const,
       content: message,
+      images: images,
       timestamp: new Date()
     };
     updatePaneMessages(paneId, userMessage);
@@ -242,7 +171,8 @@ export const Workspace: React.FC = () => {
         },
         body: JSON.stringify({
           session_id: currentSession.id,
-          message: message
+          message: message,
+          images: images
         })
       });
 
@@ -256,7 +186,7 @@ export const Workspace: React.FC = () => {
     }
   };
 
-  const handleMultiModelSelect = async (models: ModelInfo[], prompt: string) => {
+  const handleMultiModelSelect = async (models: ModelInfo[], prompt: string, images?: string[]) => {
     if (!currentSession || models.length === 0) return;
 
     setIsStreaming(true);
@@ -272,6 +202,7 @@ export const Workspace: React.FC = () => {
         body: JSON.stringify({
           session_id: currentSession.id,
           prompt: prompt,
+          images: images,
           models: models.map(model => ({
             provider_id: model.provider,
             model_id: model.id,
@@ -300,6 +231,7 @@ export const Workspace: React.FC = () => {
                 id: userMessageId, // Use backend-generated ID
                 role: 'user' as const,
                 content: prompt,
+                images: images,
                 timestamp: new Date()
               };
               updatePaneMessages(paneId, userMessage);
@@ -352,15 +284,15 @@ export const Workspace: React.FC = () => {
     summaryInstructions?: string;
   }) => {
     if (!sendToData) return;
-    
+
     try {
-      console.log('Sending content to pane:', { 
-        sourceId: sendToData.sourcePane, 
-        targetId: targetPaneId, 
+      console.log('Sending content to pane:', {
+        sourceId: sendToData.sourcePane,
+        targetId: targetPaneId,
         content,
         options
       });
-      
+
       // Call the API to transfer content with full context
       const result = await apiService.sendToPane({
         sourceId: sendToData.sourcePane,
@@ -373,12 +305,12 @@ export const Workspace: React.FC = () => {
         summaryInstructions: options.summaryInstructions,
         selectedMessageIds: sendToData.selectedContent.messageIds // Pass original message IDs
       });
-      
+
       console.log('Transfer result:', result);
-      
+
       if (result.success) {
         console.log(`✅ Successfully transferred ${result.transferred_count} messages to pane ${targetPaneId} (mode: ${options.transferMode})`);
-        
+
         // Refresh the session state from backend to show transferred messages
         if (currentSession?.id) {
           await refreshSessionFromBackend(currentSession.id);
@@ -387,7 +319,7 @@ export const Workspace: React.FC = () => {
       } else {
         console.error('❌ Transfer failed:', result);
       }
-      
+
       setSendToMenuVisible(false);
       setSendToData(null);
     } catch (error) {
