@@ -27,7 +27,8 @@ export const Workspace: React.FC = () => {
     addPane,
     addPaneWithId,
     setAvailableModels,
-    updatePaneMessages
+    updatePaneMessages,
+    updatePaneStreaming
   } = useAppStore();
 
   const [isStreaming, setIsStreaming] = useState(false);
@@ -162,6 +163,9 @@ export const Workspace: React.FC = () => {
     };
     updatePaneMessages(paneId, userMessage);
 
+    // Set streaming state to true to show loading indicator
+    updatePaneStreaming(paneId, true);
+
     try {
       // Send message to existing pane using new chat endpoint
       const response = await fetch(`http://localhost:5000/chat/${paneId}`, {
@@ -180,9 +184,11 @@ export const Workspace: React.FC = () => {
         console.log('Message sent to', pane.modelInfo.name);
       } else {
         console.error('Failed to send message:', response.statusText);
+        updatePaneStreaming(paneId, false);
       }
     } catch (error) {
       console.error('Error sending message:', error);
+      updatePaneStreaming(paneId, false);
     }
   };
 
@@ -355,6 +361,9 @@ export const Workspace: React.FC = () => {
           timestamp: new Date()
         };
         updatePaneMessages(paneId, userMessage);
+
+        // Use the action to set streaming for existing panes
+        updatePaneStreaming(paneId, true);
       });
 
       console.log('🚀 Sending messages to existing panes via /chat endpoint');
@@ -397,6 +406,7 @@ export const Workspace: React.FC = () => {
             timestamp: new Date()
           };
           updatePaneMessages(paneId, errorMessage);
+          updatePaneStreaming(paneId, false);
         }
       });
 
@@ -416,6 +426,7 @@ export const Workspace: React.FC = () => {
           timestamp: new Date()
         };
         updatePaneMessages(paneId, errorMessage);
+        updatePaneStreaming(paneId, false);
       });
     }
   };
